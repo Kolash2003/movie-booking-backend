@@ -28,6 +28,20 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-
+  refreshTokens RefreshhTokens[]
+  
   @@index([email])
+}
+
+model RefreshhTokens {
+  id      String    @id @default(uuid())
+  userId  String
+  user    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String  @unique
+  rotatedForm String?
+  revokedAt Boolean @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
