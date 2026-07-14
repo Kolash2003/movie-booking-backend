@@ -18,6 +18,61 @@ enum Role {
   USER
 }
 
+enum MovieStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum SeatType {
+  STANDARD
+  PREMIUM
+  RECLINER
+}
+
+enum ScreenType {
+  STANDARD
+  IMAX
+  DOLBY
+}
+
+enum ShowSeatStatus {
+    AVAILABLE
+    HELD
+    BOOKED
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  EXPIRED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  PAID
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentGateway {
+  RAZORPAY
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  FAILED
+}
+
 model User {
   id            String @id @default(uuid())
   email         String @unique
@@ -28,8 +83,12 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  refreshTokens RefreshhTokens[]
-  
+  refreshTokens   RefreshhTokens[]
+  bookings        Booking[]
+  ownedTheaters   Theater[]         @relation("TheaterOwner")
+  seatHolds       ShowSeat[]        @relation("SeatHolder")
+  notifications   Notification[]
+
   @@index([email])
 }
 
@@ -45,3 +104,228 @@ model RefreshhTokens {
 
   @@index([userId])
 }
+
+model Movie {
+  id      String      @id @default(uuid())
+  title   String
+  description String?
+  language    String?
+  durationMin Int
+  rating      String?
+  releaseDate DateTime?
+  posterUrl   String?
+  status  MovieStatus @default(ACTIVE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  shows   Show[]
+
+  @@index([status])
+  @@index([title])
+}
+
+model Theater {
+  id  String @id  @default(uuid())
+  name String
+  address String
+  city String
+  state String?
+  latitude Float?
+  longitude Float?
+  ownerId String
+  owner User @relation("TheaterOwner", fields: [ownerId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  screens Screen[]
+
+  @@index([ownerId])
+  @@index([city])
+}
+
+model Screen {
+  id    String  @id @default(uuid())
+  screenId  String
+  type    ScreenType  @default(STANDARD)
+  capacity  Int
+  theaterId String
+  theater Theater @relation(fields: [theaterId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  seats Seat[]
+  shows Show[]
+
+  @@index([theaterId])
+}
+
+model Seat {
+  id  String  @id   @default(uuid())
+  screenId  String
+  screen  Screen @relation(fields: [screenId], references: [id])
+  rowLablel String
+  number    Int
+  type      SeatType  @default(STANDARD)
+
+  showSeats ShowSeat[]
+
+  @@unique([screenId, rowLablel, number])
+  @@index([screenId])
+}
+
+
+model Show {
+  id    String  @id @default(uuid())
+  movieId String
+  movie   Movie @relation(fields: [movieId], references: [id])
+  screenId  String
+  screen  Screen  @relation(fields: [screenId], references: [id])
+  startTime DateTime
+  endTime   DateTime
+  basePriceCents  Int
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  showSeats ShowSeat[]
+  bookings Booking[]
+
+  @@index([movieId])
+  @@index([screenId])
+  @@index([startTime])
+}
+
+model ShowSeat {
+  id    String  @id @default(uuid())
+  showId  String
+  show  Show  @relation(fields: [showId], references: [id])
+  seatId  String
+  seats Seat  @relation(fields: [seatId], references: [id])
+  status  ShowSeatStatus  @default(AVAILABLE)
+  heldByUserId  String?
+  heldBy  User? @relation("SeatHolder", fields: [heldByUserId], references: [id])
+  heldUntil DateTime?
+  bookingId String
+  booking   Booking?  @relation(fields: [bookingId], references: [id])
+  updatedAt DateTime  @updatedAt
+
+  @@unique([showId, seatId])
+  @@index([showId])
+  @@index([status])
+  @@index([heldByUserId])
+}
+
+model Booking {
+  id    String  @id @default(uuid())
+  userId    String
+  user  User    @relation(fields: [userId], references: [id])
+  showId  String
+  show    Show  @relation(fields: [showId], references: [id])
+  status  BookingStatus @default(PENDING)
+  amountCents Int
+  seatCount   Int
+  expiresAt   DateTime
+  confirmedAt DateTime?
+  cancelledAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  showSeats     ShowSeat[]
+  payment       Payment[]
+  refunds       Refund[]
+  notifications Notification[]
+
+  @@index([userId])
+  @@index([showId])
+  @@index([status])
+}
+
+model Payment {
+  id  String  @id @default(uuid())
+  bookingId String
+  booking Booking @relation(fields: [bookingId], references: [id])
+  gateway PaymentGateway  @default(RAZORPAY)
+  providerOrderId String?
+  providerPaymentId String?
+  amountCents Int
+  currency String @default("INR")
+  status PaymentStatus @default(PENDING)
+  gatewayResponse Json?
+  retryCount Int @default(0)
+  createdAt   DateTime  @default(now())
+
+  refunds Refund[]
+
+  @@index([bookingId])
+  @@index([status])
+  @@index([providerPaymentId])
+  @@index([providerOrderId])
+}
+
+model Refund {
+  id  String  @id @default(uuid())
+  paymentId String
+  payment Payment @relation(fields: [paymentId], references: [id])
+  bookingId String
+  booking Booking @relation(fields: [bookingId], references: [id])
+  providerRefundId String?
+  amountCents Int
+  status PaymentStatus @default(PENDING)
+  reason String?
+  gatewayResponse Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([paymentId])
+  @@index([bookingId])
+}
+
+model IdempotencyRecord {
+  key String @id
+  userId String
+  route String
+  statusCode Int
+  responseBody Json
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Notification {
+  id  String  @id @default(uuid())
+  userId String?
+  user User? @relation(fields: [userId], references: [id])
+  bookingId String?
+  booking Booking? @relation(fields: [bookingId], references: [id])
+  channel NotificationChannel
+  to String
+  subject String?
+  body String
+  status NotificationStatus @default(QUEUED)
+  attempts Int @default(0)
+  lastError String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+  @@index([bookingId])
+}
+
+model BookingLatencyMetric {
+  id  String  @id @default(uuid())
+  durationMs Int
+  bookingId String?
+  latencyMs Int
+  createdAt   DateTime  @default(now())
+
+  @@index([bookingId])
+}
+
+
+
+
+
+
+
+
