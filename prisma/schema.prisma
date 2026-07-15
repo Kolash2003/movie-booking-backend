@@ -204,7 +204,7 @@ model ShowSeat {
   heldByUserId  String?
   heldBy  User? @relation("SeatHolder", fields: [heldByUserId], references: [id])
   heldUntil DateTime?
-  bookingId String
+  bookingId String?
   booking   Booking?  @relation(fields: [bookingId], references: [id])
   updatedAt DateTime  @updatedAt
 

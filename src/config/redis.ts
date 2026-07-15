@@ -19,6 +19,8 @@ class RedisClient {
 
 export const redis = RedisClient.getInstance();
 
+export const redisClient: Redis = redis;
+
 export const KEYS = {
     seatHold: (showId: string, seatId: string) => `seat:hold:${showId}:${seatId}`,
     seatHoldOwner: (showId: string, seatId: string) => `seat:hold:owner:${showId}:${seatId}`,
