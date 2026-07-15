@@ -6,7 +6,7 @@ class RedisClient {
 
     static getInstance(): Redis {
         if(!RedisClient.instance) {
-            RedisClient.instance = new ioredis(env.data.REDIS_URL, {
+            RedisClient.instance = new ioredis(env.REDIS_URL, {
                 maxRetriesPerRequest: null,
                 enableReadyCheck: true,
                 lazyConnect: false,

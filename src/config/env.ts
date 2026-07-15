@@ -43,5 +43,5 @@ if(!parsed.success) {
     process.exit(1);
 }
 
-export const env = parsed
-export type Env = typeof env;
+export const env = parsed.data
+export type Env = z.infer<typeof schema>;
