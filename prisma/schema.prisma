@@ -314,9 +314,9 @@ model Notification {
 
 model BookingLatencyMetric {
   id  String  @id @default(uuid())
+  stage String
   durationMs Int
   bookingId String?
-  latencyMs Int
   createdAt   DateTime  @default(now())
 
   @@index([bookingId])
