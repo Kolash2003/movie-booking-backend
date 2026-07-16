@@ -5,6 +5,7 @@ import { ConflictError, ForbiddenError, NotFoundError } from "../utils/error";
 import { computeAmount } from "./pricing";
 import { invalidateSeatMap, releaseSeats } from "./seatHolds";
 import { logger } from "../utils/logger";
+import { Prisma } from "../../generated/prisma/browser";
 
 
 export interface CreateBookingInput {
@@ -220,6 +221,144 @@ export async function createBooking(input: CreateBookingInput) {
 
 }
 
+interface confirmContext {
+    bookingId: string;
+    providerOrderId: string;
+    providerPaymentId: string;
+    amountCents: number;
+    gateway: 'RAZORPAY';
+}
+
+
+export async function confirmBooking(ctx: confirmContext): Promise<{confirmed: Boolean; alreadyConfirmed: Boolean}> {
+    const existing = await prisma.booking.findUnique({
+        where: {
+            id: ctx.bookingId,
+        },
+        include: {
+            payment: true,
+            showSeats: {
+                include: {
+                    seats: true,
+                }
+            }
+        }
+    });
+
+    if(!existing) {
+        logger.warn('webhook.confirm.unknownBooking', {bookingId: ctx.bookingId});
+        throw new NotFoundError('Boooking not found');
+    }
+
+    if(existing.status === 'CONFIRMED') {
+        return {
+            confirmed: false,
+            alreadyConfirmed: true,
+        }
+    }
+
+    if(existing.status !== 'PENDING') {
+        throw new ConflictError(`Booking is not confirmable in status=${existing.status}`);
+    }
+
+    if(existing.expiresAt < new Date()) {
+        await prisma.payment.updateMany({
+            where: {
+                bookingId: ctx.bookingId
+            },
+            data: {
+                status: 'PAID',
+                providerPaymentId: ctx.providerPaymentId,
+            }
+        });
+
+        logger.warn('webhook.confirm.late_payment', { bookingId: ctx.bookingId });
+
+        throw new ConflictError('Payment recedived after booking expiry: refun will be issued');
+    }
+
+    const seatIds = existing.showSeats.map((ss) => ss.seatId);
+
+    const showId = existing.showId;
+
+    await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`
+            SELECT id FROM "ShowSeat"
+            WHERE "showId" = ${showId} AND "seatId" IN (${Prisma.join(seatIds)})
+            FOR UPDATE;
+        `;
+
+        const locked = await tx.showSeat.findMany({
+            where: {
+                showId: showId,
+                seatId: {
+                    in: seatIds,
+                },
+                select: {
+                    seatId: true,
+                    status: true,
+                    bookingId: true,
+                }
+            }
+        });
+
+        const notHeldOurs = locked.filter(
+            (s) => s.status !== 'HELD' || s.bookingId !== ctx.bookingId,
+        );
+
+        if(notHeldOurs) {
+            throw new ConflictError('Seats changed state before confirmation could complete');
+        }
+
+        await tx.showSeat.updateMany({
+            where: {
+                showId: showId,
+                seatId: {
+                    in: seatIds,
+                },
+                status: 'HELD',
+                bookingId: ctx.bookingId,
+            },
+            data: {
+                status: 'BOOKED',
+                heldByUserId: null,
+                heldUntil: null,
+            }
+        });
+
+        await tx.booking.updateMany({
+            where: {
+                id: ctx.bookingId,
+            },
+            data: {
+                status: 'CONFIRMED',
+                confirmedAt: new Date(),
+            }
+        });
+
+        await tx.payment.updateMany({
+            where: {
+                bookingId: ctx.bookingId,
+            },
+            data: {
+                status: 'PAID',
+                providerPaymentId: ctx.providerPaymentId,
+                providerOrderId: ctx.providerOrderId,
+            },
+        });
+
+    });
+    
+    await invalidateSeatMap(showId, redisClient);
+
+    logger.info('booking.confirmed', { bookingId: ctx.bookingId });
+
+    return {
+        confirmed: true,
+        alreadyConfirmed: false
+    };
+}
+
 
 export async function releaseBookingSeats(bookingId: string): Promise<void> {
     await prisma.$transaction(async (tx) => {
@@ -263,4 +402,52 @@ export async function releaseBookingSeats(bookingId: string): Promise<void> {
             await invalidateSeatMap(bookingUpdated.showId, redisClient);
         }
     });
+}
+
+
+export async function failBookingPayment(
+    bookingId: string,
+    providerPaymentId: string | null
+): Promise<void> {
+    await prisma.$transaction(async (tx) => {
+        await tx.payment.updateMany({
+            where: {
+                bookingId: bookingId,
+            }, data: {
+                status: 'FAILED',
+                providerPaymentId: providerPaymentId,
+            },
+        });
+
+        await tx.booking.update({
+            where: {
+                id: bookingId,
+            },
+            data: {
+                status: 'EXPIRED',
+            },
+        });
+
+        await tx.showSeat.updateMany({
+            where: {
+                bookingId: bookingId,
+            },
+            data: {
+                status: 'AVAILABLE',
+                heldByUserId: null,
+                heldUntil: null,
+                bookingId: null,
+            },
+        });
+    });
+
+    const booking  = await prisma.booking.findUnique({
+        where: {
+            id: bookingId,
+        }
+    });
+
+    if(booking) {
+        await invalidateSeatMap(booking.showId, redisClient);
+    }
 }
