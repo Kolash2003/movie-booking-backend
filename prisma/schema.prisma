@@ -39,6 +39,7 @@ enum ShowSeatStatus {
     AVAILABLE
     HELD
     BOOKED
+    CANCELLED
 }
 
 enum BookingStatus {
