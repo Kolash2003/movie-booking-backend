@@ -215,5 +215,3 @@ export function startExpiredBookingSweep(): NodeJS.Timeout {
         expiredBookingSweep().catch(() => {});
     }, 60 * 1000);
 }
-
-export  { enrollInWaitingRoom }
