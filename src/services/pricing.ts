@@ -24,7 +24,7 @@ export function decideRefund(
     now: Date = new Date(),
 ): RefundDecision {
 
-    const msToShow = showStartTime.getTime() = now.getTime();
+    const msToShow = showStartTime.getTime() - now.getTime();
 
     if(showStartTime.getTime() <= now.getTime()) {
         return {
