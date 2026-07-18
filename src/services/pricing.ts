@@ -13,3 +13,45 @@ export function computeAmount(basePriceCents: number, seatTypes: string[]): numb
         0,
     );
 }
+
+export interface RefundDecision {
+    allowed: boolean;
+    reason?: string;
+}
+
+export function decideRefund(
+    showStartTime: Date,
+    now: Date = new Date(),
+): RefundDecision {
+
+    const msToShow = showStartTime.getTime() = now.getTime();
+
+    if(showStartTime.getTime() <= now.getTime()) {
+        return {
+            allowed: false,
+            reason: 'Show has already started'
+        };
+    }
+
+    if(msToShow < REFUND_BLACKOUT_MS) {
+        return {
+            allowed: false,
+            reason: `Refunds are not allowed within 2 hours of showtime (${Math.round(
+                msToShow / 60000,
+            )} min to showTime)`
+        };
+    }
+
+    return { 
+        allowed: true
+    };
+}
+
+
+export function payloadFingerPrint(input: unknown): string {
+    try {
+        return JSON.stringify(input);
+    } catch (error) {
+        return String(input);
+    }
+}
